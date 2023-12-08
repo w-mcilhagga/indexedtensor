@@ -1,6 +1,6 @@
 # indexed tensor
 
-The `Tensor` class creates a subclass of numpy array which (ab)uses attribute lookup to define the axes of the tensor.
+The `ITensor` class is a subclass of `torch.Tensor` which (ab)uses attribute lookup to define the axes of the tensor.
 
 If `A` is a 3D tensor, then `A.ijk` is an **indexed tensor** which labels the three axes `i`, `j`, and `k` respectively. The number of letters in the
 index must match the number of axes in the tensor, except when double-underscores (dunders) are used. `A.i__` with a dunder says the first axis is
@@ -11,7 +11,7 @@ An indexed tensor is a view of the original tensor.
 
 Indexed tensors can be multiplied together. For example `A.ij*x.j` represents a tensor whose `[i,j]`-th entry is `A[i,j]*x[j]`. However, this
 computation is not carried out until a summation is declared. Summation is indicated by **another** indexing attribute which gives the indices/axes
-that are **not** summed over.
+that are not summed over.
 
 Some examples:
 
@@ -21,7 +21,7 @@ Some examples:
 -   `(A.ij*x.i)._` sums the tensor over the axes `i` and `j` to give $t = \sum_{i,j}{A_{ij}x_j}$. A single underscore index says to sum over all axes.
 -   Finally, `(A.ij*x.i).ij` does no summation and yields a 2D tensor with elements $t_{ij} = A_{ij}x_j$
 
-Any time an indexed expression like `A.ij*x.j` is summed, it yields an unindexed tensor, which can be indexed again as needed.
+Any time an indexed expression like `A.ij*x.j` is evaluated, it yields an indexed tensor (unless all indices are summed out), which can be indexed again as needed.
 
 The Einstein summation convention is that any repeated indices are summed over. This convention is implemented through the unary plus operator.
 For example,<br/> `+(A.ij*x.j)` will sum over the repeated index `j`, and is equivalent to `(A.ij*x.j).i`.
@@ -38,21 +38,27 @@ can be performed with this notation:
 -   Inner (dot) product: `(x.i*x.i)._` or `+(x.i*x.i)`
 -   Outer product: `(a.i*b.j).ij`
 -   Matrix multiplication: `(A.ij*x.j).i` or `+(A.ij*x.j)`
--   Quadratic form: `(x.i*A.ij*x.j)._` or `(x.i*x.j*A.ij)._` or `+(x.i*A.ij*x.j)`(NB indexed multiplication is commutative)
+-   Quadratic form: `(x.i*A.ij*x.j)._` or `(x.i*x.j*A.ij)._` or `+(x.i*A.ij*x.j)` (NB indexed multiplication is commutative)
 -   Tensor contractions of all types: `(A.ijk*b.jk).i`, `(A.ijk*b.ik).j`, or `+(A.ijk*b.ik)` etc.
 -   Broadcasting: `(A.ij*x.i).ij` over the first axis or `(A.ij*x.j).ij` over the second
 
-`np.einsum` also lets you use ellipses in summation formulas. In the tensor class, a dunder index `__` is used to represent ellipses.
+`torch.einsum` also lets you use ellipses in summation formulas. In the indexed tensor class, a dunder index `__` is used to represent ellipses.
 
 In all of these cases, the result is an unindexed tensor.
 
+## Indexing.
+
+The attribute access is also implemented through indexing. In particular, `A.ij` is
+the same as `A["ij"]`.
+
 ## Interoperability
 
-Tensors, either indexed or bare, interact smoothly with numpy arrays, functions and scalars. Indexed tensors keep their indices.
+Tensors, either indexed or bare, interact smoothly with torch tensors, functions and scalars. Indexed tensors keep their indices when passed through point operations (e.g.
+`sin`, `cos`, `abs`), but lose them otherwise.
 
 For example:
 
--   `A.ij+5` returns an indexed tensor (with indices `ij`) where every element has been increased by 5. `A+5` would retunr an unindexed tensor.
+-   `A.ij+5` returns an indexed tensor (with indices `ij`) where every element has been increased by 5. `A+5` would return an unindexed tensor.
 
 -   `A.ij*B` does standard element-by-element multiplication of the indexed tensor `A` and the unindexed tensor or ndarray `B`.
 
@@ -74,8 +80,36 @@ some summation
 (A.ij*b.j+x.j).i # = ((A.ij*b.j).ij+x.j).i  broadcasting occurs, note that the inner .ij keeps it's indices
 ```
 
-complex
+complicated
 
 ```python
 ((A.ij*b.i+x.i)+y.j).i # = (((A.ij*b.i+x.i).ij+y.j).i
+```
+
+# einops
+
+Some einops functions are provided, with a gratuitous change in notation
+
+```python
+# reduce
+A.ijk.to('ij', np.max)
+# downsample, optional spaces are used to disambiguate and for clarity
+A.ijk.to('i j/2 k', f)
+# same as A.ijk.to('i j/2 k 2').to('ijk', f)
+# which is how it should be implemented
+# upsample
+A.ijk.to('i j*2 k', pattern)
+# rearrange by grouping
+A.ijk.to('i(jk)')
+# ungroup, assuming k is 5
+A.ij.to('i j/5 j%5')
+# repeat
+A.ij.to('ij3')
+```
+
+# convolution
+
+```python
+convolve(A.ijk, f.k, mode='valid')
+A.ijk@f.k # mode defaults to valid
 ```
